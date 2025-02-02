@@ -179,8 +179,23 @@ void drawweapons()
             count++;
         }
     }
-    attroff(COLOR_PAIR(2));
-    attroff(COLOR_PAIR(3));
+}
+
+void drawpassworddoors()
+{
+    int count = 0;
+    while (count < 2)
+    {
+        int x_random = rand() % COLS;
+        int y_random = rand() % LINES;
+        if (mvinch(y_random, x_random) == '+')
+        {
+            attron(COLOR_PAIR(4));
+            mvprintw(y_random, x_random, "@");
+            attroff(COLOR_PAIR(4));
+            count++;
+        }
+    }
 }
 
 void drawhallway()
@@ -680,6 +695,8 @@ void weaponmenu()
     }
 }
 
+int password = 1234;
+
 int handleinput(int input, player *user, position *traps, int trap_count)
 {
     previous_character = '.';
@@ -743,9 +760,26 @@ int handleinput(int input, player *user, position *traps, int trap_count)
         }
     }
 
-    if (mvinch(new_y, new_x) == '.' || mvinch(new_y, new_x) == '+' || mvinch(new_y, new_x) == '#' || mvinch(new_y, new_x) == 'r' || mvinch(new_y, new_x) == 'g' || mvinch(new_y, new_x) == 'm' || mvinch(new_y, new_x) == '/' || mvinch(new_y, new_x) == 'I' || mvinch(new_y, new_x) == '!' || mvinch(new_y, new_x) == ')' || (mvinch(new_y, new_x) & A_CHARTEXT) == '*')
+    if((mvinch(new_y, new_x) & A_CHARTEXT) == '@' && (mvinch(new_y, new_x) & A_COLOR) == COLOR_PAIR(4)){
+        mvprintw(0, 0, "Enter Password: ");
+        int entered_password;
+        scanw("%d", entered_password);
+        if(entered_password == password){
+            mvprintw(0, 0, "Correct");
+        }
+        else{
+            attron(COLOR_PAIR(4));
+            mvprintw(0, 0, "Wrong");
+            attroff(COLOR_PAIR(4));
+            attron(COLOR_PAIR(5));
+            mvprintw(0, 0, "@");
+            attroff(COLOR_PAIR(5));
+        }
+    }
+
+    if (((mvinch(new_y, new_x) & A_CHARTEXT) == '@' && (mvinch(new_y, new_x) & A_COLOR) == COLOR_PAIR(5))|| mvinch(new_y, new_x) == '.' || mvinch(new_y, new_x) == '+' || mvinch(new_y, new_x) == '#' || mvinch(new_y, new_x) == 'r' || mvinch(new_y, new_x) == 'g' || mvinch(new_y, new_x) == 'm' || mvinch(new_y, new_x) == '/' || mvinch(new_y, new_x) == 'I' || mvinch(new_y, new_x) == '!' || mvinch(new_y, new_x) == ')' || (mvinch(new_y, new_x) & A_CHARTEXT) == '*')
     {
-        attron(COLOR_PAIR(character_color));
+        //attron(COLOR_PAIR(character_color));
         mvprintw(user->position.y, user->position.x, "%c", previous_character);
         user->position.x = new_x;
         user->position.y = new_y;
@@ -1028,6 +1062,7 @@ void start_new_game()
     drawgold();
     drawfood();
     drawweapons();
+    drawpassworddoors();
     // add_window_pillar(room);
     while ((ch = getch()) != 'q')
     {
