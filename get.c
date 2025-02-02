@@ -762,19 +762,21 @@ int handleinput(int input, player *user, position *traps, int trap_count)
 
     if((mvinch(new_y, new_x) & A_CHARTEXT) == '@' && (mvinch(new_y, new_x) & A_COLOR) == COLOR_PAIR(4)){
         mvprintw(0, 0, "Enter Password: ");
+        curs_set(1);
         int entered_password;
-        scanw("%d", entered_password);
+        scanw("%d", &entered_password);
         if(entered_password == password){
+            attron(COLOR_PAIR(5));
             mvprintw(0, 0, "Correct");
+            mvprintw(new_y, new_x, "@");
+            attroff(COLOR_PAIR(5));
         }
         else{
             attron(COLOR_PAIR(4));
             mvprintw(0, 0, "Wrong");
             attroff(COLOR_PAIR(4));
-            attron(COLOR_PAIR(5));
-            mvprintw(0, 0, "@");
-            attroff(COLOR_PAIR(5));
         }
+        curs_set(0);
     }
 
     if (((mvinch(new_y, new_x) & A_CHARTEXT) == '@' && (mvinch(new_y, new_x) & A_COLOR) == COLOR_PAIR(5))|| mvinch(new_y, new_x) == '.' || mvinch(new_y, new_x) == '+' || mvinch(new_y, new_x) == '#' || mvinch(new_y, new_x) == 'r' || mvinch(new_y, new_x) == 'g' || mvinch(new_y, new_x) == 'm' || mvinch(new_y, new_x) == '/' || mvinch(new_y, new_x) == 'I' || mvinch(new_y, new_x) == '!' || mvinch(new_y, new_x) == ')' || (mvinch(new_y, new_x) & A_CHARTEXT) == '*')
