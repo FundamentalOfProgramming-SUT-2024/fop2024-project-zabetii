@@ -4,25 +4,52 @@
 #include <stdlib.h>
 #include <time.h>
 #include <locale.h>
+#include <SDL2/SDL.h>
+#include <SDL2/SDL_mixer.h>
 #include "menu.h"
 #define MIN_ROOMS 6
-#define MAX_ROOMS 12
+#define MAX_ROOMS 9
 #define COLOR_GREY 10
-user users[MAX_USER]; //
+#define COLOR_ORANGE 11
+#define COLOR_GOLD 12
+user users[MAX_USER];
 int usercounter = 0;
 score scores[MAX_USER];
+char hallways[200][200];
 int scorecounter = 0;
 int game_difficulty;
 int color_of_character;
-char current_message[COLMAXI]; //
+int password = 1234;
+int key_count = 0;
+int broken_key_count = 0;
+long long int password_time;
+int damage;
+char previous_character;
+int gold_count = 0;
+int hunger = 10;
+long long int hunger_time;
+long long int health_time;
+int health = 10;
+int current_weapon = 0;
+int password_flag = 0;
+int flag;
+char current_message[COLMAXI];
 int food_count[3] = {0, 0, 0};
+int spell_count[3] = {0, 0, 0};
 int weapon_count[5] = {1, 0, 0, 0, 0};
+int enemies_health[5] = {5, 10, 15, 20, 30};
+
 typedef struct position
 {
     int x;
     int y;
     int revealed;
+    int color;
 } position;
+
+position password_door;
+position stair;
+position enemies[5];
 typedef struct room
 {
     position position;
@@ -31,17 +58,18 @@ typedef struct room
     position door[4];
     int num_of_doors;
 } room;
+
 typedef struct player
 {
     position position;
 } player;
-typedef struct floor
+typedef struct game_floor
 {
     room **rooms;
     int num_rooms;
-    position stair; // Position of the staircase to the next floor
-} floor;
-
+    position stair;
+} game_floor;
+int game_floor_number = 1;
 room **mapsetup();
 room *createroom(int x, int y, int width, int height);
 player *playersetup();
@@ -49,9 +77,9 @@ int handleinput(int input, player *user, position *traps, int trap_count);
 void drawroom(room *room);
 int is_room_overlapping(room *new_room, room **rooms, int num_rooms);
 void start_new_game();
-void add_window_pillar(room *room);
+void add_pillar(room *room);
 void add_traps(room *room, position *traps, int *trap_count);
-void add_staircase(room *room, position *stair);
+void add_staircase();
 void foodmenu();
 int main()
 {
@@ -62,6 +90,8 @@ int main()
     start_color();
     init_color(COLOR_YELLOW, 1000, 800, 0);
     init_color(COLOR_GREY, 500, 500, 500);
+    init_color(COLOR_ORANGE, 1000, 500, 0);
+    init_color(COLOR_GOLD, 600, 500, 50);
     init_pair(1, COLOR_BLACK, COLOR_BLACK);
     init_pair(2, COLOR_YELLOW, COLOR_BLACK);
     init_pair(3, COLOR_GREY, COLOR_BLACK);
@@ -69,10 +99,13 @@ int main()
     init_pair(5, COLOR_GREEN, COLOR_BLACK);
     init_pair(6, COLOR_CYAN, COLOR_BLACK);
     init_pair(7, COLOR_MAGENTA, COLOR_BLACK);
+    init_pair(8, COLOR_ORANGE, COLOR_BLACK);
+    init_pair(9, COLOR_GOLD, COLOR_BLACK);
     main_menu(); // menu
     endwin();
     return 0;
 }
+
 void add_traps(room *room, position *traps, int *trap_count)
 {
     int num_of_traps = rand() % 5; // Up to 3 traps per room
@@ -85,14 +118,39 @@ void add_traps(room *room, position *traps, int *trap_count)
         (*trap_count)++;
     }
 }
-void add_staircase(room *room, position *stair)
+
+void add_staircase()
 {
-    stair->x = room->position.x + 1 + rand() % (room->width - 2);
-    stair->y = room->position.y + 1 + rand() % (room->height - 2);
-    mvprintw(stair->y, stair->x, ">");
+    int count = 0;
+    while (count < 1)
+    {
+        int x_random = rand() % COLS;
+        int y_random = rand() % LINES;
+        if (mvinch(y_random, x_random) == '.')
+        {
+            mvprintw(y_random, x_random, ">");
+            stair.x = x_random;
+            stair.y = y_random;
+            stair.color = 4;
+            count++;
+        }
+    }
 }
 
-char hallways[200][200];
+void drawtreasure()
+{
+    int count = 0;
+    while (count < 1)
+    {
+        int x_random = rand() % COLS;
+        int y_random = rand() % LINES;
+        if (mvinch(y_random, x_random) == '.')
+        {
+            mvprintw(y_random, x_random, "t");
+            count++;
+        }
+    }
+}
 
 void drawgold()
 {
@@ -120,6 +178,33 @@ void drawgold()
     attroff(COLOR_PAIR(3));
 }
 
+void drawspells()
+{
+    int count = 0;
+    while (count < 20)
+    {
+        int x_random = rand() % COLS;
+        int y_random = rand() % LINES;
+        if (mvinch(y_random, x_random) == '.')
+        {
+            int random = rand() % 3;
+            if (random == 0)
+            {
+                mvprintw(y_random, x_random, "h");
+            }
+            else if (random == 1)
+            {
+                mvprintw(y_random, x_random, "s");
+            }
+            else if (random == 2)
+            {
+                mvprintw(y_random, x_random, "d");
+            }
+            count++;
+        }
+    }
+}
+
 void drawfood()
 {
     int count = 0;
@@ -138,7 +223,7 @@ void drawfood()
             {
                 mvprintw(y_random, x_random, "g");
             }
-            else
+            else if (random == 2)
             {
                 mvprintw(y_random, x_random, "m");
             }
@@ -158,7 +243,7 @@ void drawweapons()
         int y_random = rand() % LINES;
         if (mvinch(y_random, x_random) == '.')
         {
-            int random = rand() % 3;
+            int random = rand() % 4;
             if (random == 0)
             {
                 mvprintw(y_random, x_random, ")"); // arrow
@@ -171,7 +256,7 @@ void drawweapons()
             {
                 mvprintw(y_random, x_random, "I"); // sword
             }
-            else
+            else if (random == 3)
             {
                 mvprintw(y_random, x_random, "!"); // dagger
             }
@@ -180,11 +265,30 @@ void drawweapons()
         }
     }
 }
-
-void drawpassworddoors()
+char enemy[5] = "DFGSU";
+char *enemy_names[5] = {"Demon", "Fire breathing monster", "Giant", "Snake", "Undead"};
+void spawnenemy()
 {
     int count = 0;
-    while (count < 2)
+    while (count < 5)
+    {
+        int x_random = rand() % COLS;
+        int y_random = rand() % LINES;
+        if (mvinch(y_random, x_random) == '.')
+        {
+            mvprintw(y_random, x_random, "%c", enemy[count]);
+            enemies[count].x = x_random;
+            enemies[count].y = y_random;
+            count++;
+        }
+    }
+}
+
+int x_button, y_button;
+void drawpassworddoor()
+{
+    int count = 0;
+    while (count < 1)
     {
         int x_random = rand() % COLS;
         int y_random = rand() % LINES;
@@ -193,6 +297,58 @@ void drawpassworddoors()
             attron(COLOR_PAIR(4));
             mvprintw(y_random, x_random, "@");
             attroff(COLOR_PAIR(4));
+            password_door.x = x_random;
+            password_door.y = y_random;
+            password_door.color = 4;
+            count++;
+        }
+    }
+
+    if ((mvinch(password_door.y + 1, password_door.x + 1) & A_CHARTEXT) == '.')
+    {
+        x_button = password_door.x + 1;
+        y_button = password_door.y + 1;
+    }
+    else if ((mvinch(password_door.y + 1, password_door.x - 1) & A_CHARTEXT) == '.')
+    {
+        x_button = password_door.x - 1;
+        y_button = password_door.y + 1;
+    }
+    else if ((mvinch(password_door.y - 1, password_door.x + 1) & A_CHARTEXT) == '.')
+    {
+        x_button = password_door.x + 1;
+        y_button = password_door.y - 1;
+    }
+    else if ((mvinch(password_door.y - 1, password_door.x - 1) & A_CHARTEXT) == '.')
+    {
+        x_button = password_door.x - 1;
+        y_button = password_door.y - 1;
+    }
+    else
+    {
+        x_button = password_door.x;
+        y_button = password_door.y;
+    }
+    mvaddch(y_button, x_button, '&');
+    mvaddch(stair.y, stair.x, '<');
+}
+
+position key;
+void drawkey()
+{
+    int count = 0;
+    while (count < 1)
+    {
+        int x_random = rand() % COLS;
+        int y_random = rand() % LINES;
+        if (mvinch(y_random, x_random) == '.')
+        {
+            attron(COLOR_PAIR(9));
+            mvprintw(y_random, x_random, "\U000025B3");
+            attroff(COLOR_PAIR(9));
+            key.x = x_random;
+            key.y = y_random;
+            key.color = 4;
             count++;
         }
     }
@@ -215,7 +371,6 @@ void drawhallway()
             }
         }
     }
-    getch();
 
     for (int i = 0; i < door_count - 1; i++)
     {
@@ -274,38 +429,7 @@ void drawhallway()
         {
             mvprintw(y2, x2, "#");
         }
-        // int dx = abs(x2 - x1);
-        // int dy = abs(y2 - y1);
-        // int sx = (x1 < x2) ? 1 : -1;
-        // int sy = (y1 < y2) ? 1 : -1;
-        // int err = dx - dy;
-
-        // while (1)
-        // {
-        //     if (mvinch(y1, x1) != '|' && mvinch(y1, x1) != '_' && mvinch(y1, x1) != '.' && mvinch(y1, x1) != 'o' && mvinch(y1, x1) != '=')
-        //     {
-        //         mvaddch(y1, x1, '#');
-        //     }
-        //     else if (mvinch(y1, x1) == '|' || mvinch(y1, x1) == '_')
-        //     {
-        //         mvaddch(y1, x1, '+');
-        //     }
-        //     if (x1 == x2 && y1 == y2)
-        //         break;
-        //     int e2 = 2 * err;
-        //     if (e2 > -dy)
-        //     {
-        //         err -= dy;
-        //         x1 += sx;
-        //     }
-        //     if (e2 < dx)
-        //     {
-        //         err += dx;
-        //         y1 += sy;
-        //     }
-        // }
     }
-    getch();
 
     for (int i = 0; i < LINES; i++)
     {
@@ -456,7 +580,6 @@ void drawhallway()
             }
         }
     }
-    getch();
     for (int i = 0; i < LINES; i++)
     {
         for (int j = 0; j < COLS; j++)
@@ -471,13 +594,6 @@ void drawhallway()
 
     refresh();
 }
-
-char previous_character;
-int gold_count = 0;
-int hunger = 10;
-long long int hunger_time;
-long long int health_time;
-int health = 10;
 
 void foodmenu()
 {
@@ -504,6 +620,7 @@ void foodmenu()
                 food_count[0]--;
                 hunger_time = time(NULL);
                 hunger++;
+                health++;
                 getch();
             }
             else
@@ -520,6 +637,7 @@ void foodmenu()
                 food_count[1]--;
                 hunger_time = time(NULL);
                 hunger++;
+                health++;
                 getch();
             }
             else
@@ -536,6 +654,7 @@ void foodmenu()
                 food_count[2]--;
                 hunger_time = time(NULL);
                 hunger++;
+                health++;
                 getch();
             }
             else
@@ -560,7 +679,85 @@ void foodmenu()
         }
     }
 }
-int current_weapon = 0;
+void spellmenu()
+{
+    chtype map[LINES][COLS];
+    for (int i = 0; i < LINES; i++)
+    {
+        for (int j = 0; j < COLS; j++)
+        {
+            map[i][j] = mvinch(i, j);
+        }
+    }
+    while (1)
+    {
+        clear();
+        mvprintw(0, 0, "a) Health spell: %d", spell_count[0]);
+        mvprintw(1, 0, "b) Speed spell: %d", spell_count[1]);
+        mvprintw(2, 0, "c) Damage spell: %d", spell_count[2]);
+        int c = getch();
+        if (c == 'a')
+        {
+            if (spell_count[0] > 0)
+            {
+                mvprintw(4, 0, "You used Health spell.");
+                spell_count[0]--;
+                hunger_time = time(NULL);
+                hunger++;
+                health++;
+                getch();
+            }
+            else
+            {
+                mvprintw(4, 0, "You are out of Health spell.");
+                getch();
+            }
+        }
+        if (c == 'b')
+        {
+            if (spell_count[1] > 0)
+            {
+                mvprintw(4, 0, "You used Speed spell.");
+                spell_count[1]--;
+                getch();
+            }
+            else
+            {
+                mvprintw(4, 0, "You are out of Speed spell.");
+                getch();
+            }
+        }
+        if (c == 'c')
+        {
+            if (spell_count[2] > 0)
+            {
+                mvprintw(4, 0, "You used Damage spell.");
+                spell_count[2]--;
+                getch();
+            }
+            else
+            {
+                mvprintw(4, 0, "You are out of Damage spell.");
+                getch();
+            }
+        }
+        else if (c == 32)
+        {
+            break;
+        }
+    }
+    for (int i = 0; i < LINES; i++)
+    {
+        for (int j = 0; j < COLS; j++)
+        {
+            int color_pair = (map[i][j] & A_COLOR) >> 8;
+            attron(COLOR_PAIR(color_pair));
+            mvprintw(i, j, "%c", map[i][j] & A_CHARTEXT);
+            attroff(COLOR_PAIR(color_pair));
+        }
+    }
+}
+
 void weaponmenu()
 {
     chtype map[LINES][COLS];
@@ -590,7 +787,7 @@ void weaponmenu()
         {
             mvprintw(6, 0, "You have got no current weapon");
             getch();
-            mvprintw(6, 0, "                              ");
+            mvprintw(6, 0, "                                                        ");
         }
         int c = getch();
         if (c == 'a')
@@ -606,7 +803,7 @@ void weaponmenu()
                 current_weapon = 0;
                 mvprintw(6, 0, "You picked mace.");
                 getch();
-                mvprintw(6, 0, "                ");
+                mvprintw(6, 0, "                                                ");
             }
         }
         if (c == 'b')
@@ -622,7 +819,7 @@ void weaponmenu()
                 current_weapon = 1;
                 mvprintw(6, 0, "You picked dagger.");
                 getch();
-                mvprintw(6, 0, "                  ");
+                mvprintw(6, 0, "                                                ");
             }
         }
         if (c == 'c')
@@ -631,7 +828,7 @@ void weaponmenu()
             {
                 mvprintw(6, 0, "You should first put your current weapon in the backpack.");
                 getch();
-                mvprintw(6, 0, "                                                         ");
+                mvprintw(6, 0, "                                                                ");
             }
             else
             {
@@ -654,7 +851,7 @@ void weaponmenu()
                 current_weapon = 3;
                 mvprintw(6, 0, "You picked normal arrow.");
                 getch();
-                mvprintw(6, 0, "                        ");
+                mvprintw(6, 0, "                                                   ");
             }
         }
         if (c == 'e')
@@ -670,7 +867,7 @@ void weaponmenu()
                 current_weapon = 4;
                 mvprintw(6, 0, "You picked sword.");
                 getch();
-                mvprintw(6, 0, "                 ");
+                mvprintw(6, 0, "                                                         ");
             }
         }
         else if (c == 32)
@@ -687,7 +884,7 @@ void weaponmenu()
     {
         for (int j = 0; j < COLS; j++)
         {
-            int color_pair = (map[i][j] & A_COLOR) >> 8; // Extract color pair value
+            int color_pair = (map[i][j] & A_COLOR) >> 8;
             attron(COLOR_PAIR(color_pair));
             mvprintw(i, j, "%c", map[i][j] & A_CHARTEXT);
             attroff(COLOR_PAIR(color_pair));
@@ -695,15 +892,178 @@ void weaponmenu()
     }
 }
 
-int password = 1234;
+void drawenemies()
+{
+    for (int i = 0; i < 5; i++)
+    {
+        if (enemies_health[i] > 0)
+        {
+            mvprintw(enemies[i].y, enemies[i].x, "%c", enemy[i]);
+        }
+    }
+}
+
+int areinsameroom(int y1, int x1, int y2, int x2)
+{
+    int temp = x1;
+    if (x1 > x2)
+    {
+        x1 = x2;
+        x2 = temp;
+    }
+    temp = y1;
+    if (y1 > y2)
+    {
+        y1 = y2;
+        y2 = temp;
+    }
+    int check = 0;
+    while (x1 < x2)
+    {
+        x1++;
+        if ((mvinch(y1, x1) & A_CHARTEXT) == ' ')
+        {
+            return 0;
+        }
+    }
+    while (y1 < y2)
+    {
+        y1++;
+        if ((mvinch(y1, x1) & A_CHARTEXT) == ' ')
+        {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+void drawtreasureroom()
+{
+    clear();
+    int room_width = COLS / 2;
+    int room_height = LINES / 2;
+
+    int start_x = (COLS - room_width) / 2;
+    int start_y = (LINES - room_height) / 2;
+
+    for (int x = start_x; x < start_x + room_width; x++)
+    {
+        mvprintw(start_y, x, "_");
+        mvprintw(start_y + room_height - 1, x, "_");
+    }
+
+    for (int y = start_y + 1; y < start_y + room_height - 1; y++)
+    {
+        mvprintw(y, start_x, "|");
+        mvprintw(y, start_x + room_width - 1, "|");
+        for (int x = start_x + 1; x < start_x + room_width - 1; x++)
+        {
+            mvprintw(y, x, ".");
+        }
+    }
+    int ch;
+    while ((ch = getch()) != 'q')
+    {
+        // handleinput(ch, user, traps, trap_count);
+        if (health == 0)
+        {
+            clear();
+            mvprintw(0, 0, "You died.\nScore: %d", gold_count);
+            getch();
+            break;
+        }
+        mvaddch(LINES / 2, COLS / 2, '@');
+        mvprintw(LINES - 1, 10, "Gold: %d", gold_count);
+        if (hunger > 10)
+        {
+            hunger = 10;
+        }
+        if (difftime(time(NULL), hunger_time) >= 20)
+        {
+            if (hunger > 0)
+            {
+                hunger--;
+                hunger_time = time(NULL);
+            }
+        }
+        if (hunger == 0)
+        {
+            if (difftime(time(NULL), health_time) >= 10)
+            {
+                health--;
+                health_time = time(NULL);
+            }
+        }
+        mvprintw(LINES - 1, 30, "Hunger:                                   ");
+        move(LINES - 1, 39);
+        for (int i = 0; i < hunger; i++)
+        {
+            printw("\U0001F355");
+        }
+        mvprintw(LINES - 1, 70, "Health:                                       ");
+        move(LINES - 1, 78);
+        attron(COLOR_PAIR(4));
+        for (int i = 0; i < health; i++)
+        {
+            printw("\U00002764 ");
+        }
+        attroff(COLOR_PAIR(4));
+    }
+    mvprintw(0, 0, "You won.\nScore: %d", gold_count + 100);
+    getch();
+}
 
 int handleinput(int input, player *user, position *traps, int trap_count)
 {
+    mvprintw(0, COLS - 25, "You are on floor %d", game_floor_number);
     previous_character = '.';
     int new_x = user->position.x;
     int new_y = user->position.y;
+    attron(COLOR_PAIR(password_door.color));
+    mvprintw(password_door.y, password_door.x, "@");
+    attroff(COLOR_PAIR(password_door.color));
+    mvprintw(y_button, x_button, "&");
 
-    if (input == 'h' || input == 'H' || input == KEY_LEFT)
+    if (input == ' ')
+    {
+        if (current_weapon == 0 || current_weapon == 4)
+        {
+            if (current_weapon == 0)
+            {
+                damage = 5;
+            }
+            else
+            {
+                damage = 10;
+            }
+            for (int i = -1; i <= 1; i++)
+            {
+                for (int j = -1; j <= 1; j++)
+                {
+                    if (i == 0 && j == 0)
+                    {
+                        continue;
+                    }
+
+                    for (int k = 0; k < 5; k++)
+                    {
+                        if ((mvinch(i + user->position.y, j + user->position.x) & A_CHARTEXT) == enemy[k])
+                        {
+                            enemies_health[k] -= damage;
+                            mvprintw(0, 0, "You hit the %s!", enemy_names[k]);
+                            getch();
+                            mvprintw(0, 0, "                                       ");
+                            if (enemies_health[k] < 1)
+                            {
+                                mvprintw(0, 0, "You killed the %s!", enemy_names[k]);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    else if (input == 'h' || input == 'H' || input == KEY_LEFT)
     { // Left
         new_x--;
     }
@@ -747,6 +1107,10 @@ int handleinput(int input, player *user, position *traps, int trap_count)
     {
         weaponmenu();
     }
+    else if (input == 'd' || input == 'D')
+    {
+        spellmenu();
+    }
     else if (input == 'w' || input == 'W')
     {
         if (current_weapon != -1)
@@ -760,28 +1124,142 @@ int handleinput(int input, player *user, position *traps, int trap_count)
         }
     }
 
-    if((mvinch(new_y, new_x) & A_CHARTEXT) == '@' && (mvinch(new_y, new_x) & A_COLOR) == COLOR_PAIR(4)){
-        mvprintw(0, 0, "Enter Password: ");
-        curs_set(1);
-        int entered_password;
-        scanw("%d", &entered_password);
-        if(entered_password == password){
-            attron(COLOR_PAIR(5));
-            mvprintw(0, 0, "Correct");
-            mvprintw(new_y, new_x, "@");
-            attroff(COLOR_PAIR(5));
+    if ((mvinch(new_y, new_x) & A_CHARTEXT) == '@' && (mvinch(new_y, new_x) & A_COLOR) == COLOR_PAIR(4))
+    {
+        int try_count = 0;
+        mvprintw(0, 0, "Enter P if you want to use a password and enter K if you want to use a key: ");
+        int c = getch();
+        mvprintw(0, 0, "                                                                                                  ");
+        if (c == 'p' || c == 'P')
+        {
+            while (try_count < 3)
+            {
+                mvprintw(0, 0, "Enter Password: ");
+                curs_set(1);
+                int entered_password;
+                echo();
+                scanw("%d", &entered_password);
+                noecho();
+                if (entered_password == password)
+                {
+                    attron(COLOR_PAIR(5));
+                    mvprintw(1, 0, "Correct!");
+                    attroff(COLOR_PAIR(5));
+                    password_door.color = 5;
+                    curs_set(0);
+                    getch();
+                    break;
+                }
+                else
+                {
+                    if (try_count == 0)
+                    {
+                        attron(COLOR_PAIR(2));
+                    }
+                    if (try_count == 1)
+                    {
+                        attron(COLOR_PAIR(8));
+                    }
+                    if (try_count == 2)
+                    {
+                        attron(COLOR_PAIR(4));
+                    }
+
+                    mvprintw(1, 0, "Wrong");
+                    attroff(COLOR_PAIR(2));
+                    attroff(COLOR_PAIR(4));
+                    attroff(COLOR_PAIR(4));
+                    try_count++;
+                }
+                mvprintw(0, 0, "Enter Password:                                                ");
+                curs_set(0);
+            }
         }
-        else{
-            attron(COLOR_PAIR(4));
-            mvprintw(0, 0, "Wrong");
-            attroff(COLOR_PAIR(4));
+        else if (c == 'k' || c == 'K')
+        {
+            if (key_count < 1)
+            {
+                mvprintw(0, 0, "You have no key.");
+            }
+            else if (broken_key_count >= 2)
+            {
+                mvprintw(0, 0, "You opened the door using two broken keys.");
+                broken_key_count -= 2;
+                password_door.color = 5;
+                getch();
+                mvprintw(0, 0, "                                                                   ");
+            }
+            else
+            {
+                mvprintw(0, 0, "You opened the door using one key.");
+                key_count--;
+                password_door.color = 5;
+                getch();
+                mvprintw(0, 0, "                                                                ");
+            }
         }
-        curs_set(0);
+        mvprintw(0, 0, "                                                            ");
+        mvprintw(1, 0, "                                                          ");
     }
 
-    if (((mvinch(new_y, new_x) & A_CHARTEXT) == '@' && (mvinch(new_y, new_x) & A_COLOR) == COLOR_PAIR(5))|| mvinch(new_y, new_x) == '.' || mvinch(new_y, new_x) == '+' || mvinch(new_y, new_x) == '#' || mvinch(new_y, new_x) == 'r' || mvinch(new_y, new_x) == 'g' || mvinch(new_y, new_x) == 'm' || mvinch(new_y, new_x) == '/' || mvinch(new_y, new_x) == 'I' || mvinch(new_y, new_x) == '!' || mvinch(new_y, new_x) == ')' || (mvinch(new_y, new_x) & A_CHARTEXT) == '*')
+    if ((mvinch(new_y, new_x) & A_CHARTEXT) == '&')
     {
-        //attron(COLOR_PAIR(character_color));
+        password = rand() % 9000 + 1000;
+        password_time = time(NULL);
+        password_flag = 1;
+    }
+
+    if ((mvinch(new_y, new_x) & A_CHARTEXT) == '>')
+    {
+        int c = getch();
+        if (c == '>')
+        {
+            if (game_floor_number == 1)
+            {
+                mvprintw(0, 0, "Your way is blocked.");
+                getch();
+                mvprintw(0, 0, "                                                   ");
+            }
+            else
+            {
+                game_floor_number--;
+                flag = 1;
+            }
+        }
+        if (c == '<')
+        {
+            if (game_floor_number == 4)
+            {
+                mvprintw(0, 0, "Your way is blocked.");
+                getch();
+                mvprintw(0, 0, "                                                       ");
+            }
+            else
+            {
+                game_floor_number++;
+                flag = 1;
+            }
+        }
+    }
+
+    if ((mvinch(new_y, new_x) & A_CHARTEXT) == 't')
+    {
+        drawtreasureroom();
+    }
+
+    if (new_y == key.y && new_x == key.x)
+    {
+        mvprintw(0, 0, "You picked up a key.");
+        getch();
+        mvprintw(0, 0, "                                                      ");
+        key_count++;
+        mvprintw(user->position.y, user->position.x, "%c", previous_character);
+        user->position.x = new_x;
+        user->position.y = new_y;
+    }
+
+    if (((mvinch(new_y, new_x) & A_CHARTEXT) == '@' && (mvinch(new_y, new_x) & A_COLOR) == COLOR_PAIR(5)) || mvinch(new_y, new_x) == '.' || mvinch(new_y, new_x) == 's' || mvinch(new_y, new_x) == 'h' || mvinch(new_y, new_x) == 'd' || mvinch(new_y, new_x) == '>' || mvinch(new_y, new_x) == '&' || mvinch(new_y, new_x) == '+' || mvinch(new_y, new_x) == '#' || mvinch(new_y, new_x) == 'r' || mvinch(new_y, new_x) == 'g' || mvinch(new_y, new_x) == 'm' || mvinch(new_y, new_x) == '/' || mvinch(new_y, new_x) == 'I' || mvinch(new_y, new_x) == '!' || mvinch(new_y, new_x) == ')' || (mvinch(new_y, new_x) & A_CHARTEXT) == '*')
+    {
         mvprintw(user->position.y, user->position.x, "%c", previous_character);
         user->position.x = new_x;
         user->position.y = new_y;
@@ -794,14 +1272,14 @@ int handleinput(int input, player *user, position *traps, int trap_count)
             gold_count += 5;
             mvprintw(0, 0, "You picked up 5 gold pieces.");
             getch();
-            mvprintw(0, 0, "                            ");
+            mvprintw(0, 0, "                                                                   ");
         }
         else
         {
             gold_count += 20;
-            mvprintw(0, 0, "You picked up 20 gold pieces. (black gold)");
+            mvprintw(0, 0, "You picked up 20 black gold pieces.");
             getch();
-            mvprintw(0, 0, "                                          ");
+            mvprintw(0, 0, "                                                                           ");
         }
     }
 
@@ -810,7 +1288,7 @@ int handleinput(int input, player *user, position *traps, int trap_count)
         food_count[0]++;
         mvprintw(0, 0, "You picked up regular food.");
         getch();
-        mvprintw(0, 0, "                           ");
+        mvprintw(0, 0, "                                                                  ");
     }
 
     if (mvinch(new_y, new_x) == 'g')
@@ -818,7 +1296,7 @@ int handleinput(int input, player *user, position *traps, int trap_count)
         food_count[1]++;
         mvprintw(0, 0, "You picked up great food.");
         getch();
-        mvprintw(0, 0, "                           ");
+        mvprintw(0, 0, "                                                                ");
     }
 
     if (mvinch(new_y, new_x) == 'm')
@@ -826,7 +1304,31 @@ int handleinput(int input, player *user, position *traps, int trap_count)
         food_count[2]++;
         mvprintw(0, 0, "You picked up magical food.");
         getch();
-        mvprintw(0, 0, "                           ");
+        mvprintw(0, 0, "                                                                      ");
+    }
+
+    if (mvinch(new_y, new_x) == 'h')
+    {
+        spell_count[0]++;
+        mvprintw(0, 0, "You picked up 1 health spell.");
+        getch();
+        mvprintw(0, 0, "                                                                  ");
+    }
+
+    if (mvinch(new_y, new_x) == 's')
+    {
+        spell_count[0]++;
+        mvprintw(0, 0, "You picked up 1 speed spell.");
+        getch();
+        mvprintw(0, 0, "                                                                  ");
+    }
+
+    if (mvinch(new_y, new_x) == 'd')
+    {
+        spell_count[0]++;
+        mvprintw(0, 0, "You picked up 1 damage spell.");
+        getch();
+        mvprintw(0, 0, "                                                                  ");
     }
 
     if (mvinch(new_y, new_x) == '!')
@@ -834,7 +1336,7 @@ int handleinput(int input, player *user, position *traps, int trap_count)
         weapon_count[3] += 10;
         mvprintw(0, 0, "You picked up 10 daggers.");
         getch();
-        mvprintw(0, 0, "                            ");
+        mvprintw(0, 0, "                                                               ");
     }
 
     if (mvinch(new_y, new_x) == '/')
@@ -842,7 +1344,7 @@ int handleinput(int input, player *user, position *traps, int trap_count)
         weapon_count[3] += 8;
         mvprintw(0, 0, "You picked up 8 magic wands.");
         getch();
-        mvprintw(0, 0, "                            ");
+        mvprintw(0, 0, "                                                                 ");
     }
 
     if (mvinch(new_y, new_x) == ')')
@@ -850,26 +1352,50 @@ int handleinput(int input, player *user, position *traps, int trap_count)
         weapon_count[3] += 20;
         mvprintw(0, 0, "You picked up 20 normal arrows.");
         getch();
-        mvprintw(0, 0, "                               ");
+        mvprintw(0, 0, "                                                                    ");
     }
 
     for (int i = 0; i < trap_count; i++)
     {
         if (traps[i].x == user->position.x && traps[i].y == user->position.y)
         {
-            mvprintw(user->position.y, user->position.x, "^"); // Reveal trap
+            mvprintw(user->position.y, user->position.x, "^");
             mvprintw(0, 0, "You have stepped on a trap!");
             traps[i].revealed = 1;
             health--;
             getch();
-            mvprintw(0, 0, "                           ");
+            mvprintw(0, 0, "                                                                  ");
             break;
         }
     }
-
     attron(A_REVERSE);
     mvprintw(user->position.y, user->position.x, "@");
     attroff(A_REVERSE);
+    mvprintw(LINES - 1, COLS - 20, "Keys:                                         ");
+    move(LINES - 1, COLS - 14);
+    attron(COLOR_PAIR(9));
+    for (int i = 0; i < key_count; i++)
+    {
+        printw("\U000025B6 ");
+    }
+    for (int i = 0; i < broken_key_count; i++)
+    {
+        printw("\U000025B7 ");
+    }
+    attroff(COLOR_PAIR(9));
+    if (password_flag == 1 && difftime(time(NULL), password_time) <= 30)
+    {
+        mvprintw(0, 0, "Password: %d", password);
+    }
+    else if (password_flag == 1 && difftime(time(NULL), password_time) > 30)
+    {
+        password_flag = 0;
+        mvprintw(0, 0, "                                                 ");
+    }
+    if (difftime(time(NULL), password_time) > 0 && difftime(time(NULL), password_time) <= 30)
+    {
+        mvprintw(1, 0, "Time Left: %lld seconds", (long long int)(30 - difftime(time(NULL), password_time)));
+    }
     mvprintw(LINES - 1, 10, "Gold: %d", gold_count);
     if (hunger > 10)
     {
@@ -891,13 +1417,13 @@ int handleinput(int input, player *user, position *traps, int trap_count)
             health_time = time(NULL);
         }
     }
-    mvprintw(LINES - 1, 30, "Hunger:                     ");
+    mvprintw(LINES - 1, 30, "Hunger:                                                    ");
     move(LINES - 1, 39);
     for (int i = 0; i < hunger; i++)
     {
         printw("\U0001F355");
     }
-    mvprintw(LINES - 1, 70, "Health:                         ");
+    mvprintw(LINES - 1, 70, "Health:                                                         ");
     move(LINES - 1, 78);
     attron(COLOR_PAIR(4));
     for (int i = 0; i < health; i++)
@@ -913,6 +1439,36 @@ int handleinput(int input, player *user, position *traps, int trap_count)
         }
     }
     refresh();
+    for (int i = 0; i < 5; i++)
+    {
+        if (areinsameroom(enemies[i].y, enemies[i].x, user->position.y, user->position.x))
+        {
+            int x_new = enemies[i].x, y_new = enemies[i].y;
+            if (enemies[i].x < user->position.x)
+            {
+                x_new++;
+            }
+            else if (enemies[i].x > user->position.x)
+            {
+                x_new--;
+            }
+            else if (enemies[i].y > user->position.y)
+            {
+                y_new--;
+            }
+            else if (enemies[i].y > user->position.y)
+            {
+                y_new++;
+            }
+            if (((mvinch(y_new, x_new) & A_CHARTEXT) == '@' && (mvinch(y_new, x_new) & A_COLOR) == COLOR_PAIR(5)) || mvinch(y_new, x_new) == '.' || mvinch(y_new, x_new) == '+' || mvinch(y_new, x_new) == '#' || mvinch(y_new, x_new) == 'r' || mvinch(y_new, x_new) == 'g' || mvinch(y_new, x_new) == 'm' || mvinch(y_new, x_new) == '/' || mvinch(y_new, x_new) == 'I' || mvinch(y_new, x_new) == '!' || mvinch(y_new, x_new) == ')' || (mvinch(y_new, x_new) & A_CHARTEXT) == '*')
+            {
+                mvprintw(enemies[i].y, enemies[i].x, "%c", previous_character);
+                enemies[i].x = x_new;
+                enemies[i].y = y_new;
+            }
+        }
+    }
+    drawenemies();
     return 0;
 }
 
@@ -975,30 +1531,36 @@ void drawroom(room *room)
 {
     if (room == NULL)
         return;
-    for (int x = room->position.x; x < room->position.x + room->width; x++)
 
+    // if(rand() % 10 < 3){
+    //     attron(COLOR_PAIR(7));
+    // }
+
+    for (int x = room->position.x; x < room->position.x + room->width; x++)
     {
         mvprintw(room->position.y, x, "_");                    // Top border
         mvprintw(room->position.y + room->height - 1, x, "_"); // Bottom border
     }
 
     for (int y = room->position.y + 1; y < room->position.y + room->height - 1; y++)
-
     {
         mvprintw(y, room->position.x, "|");                   // Left border
         mvprintw(y, room->position.x + room->width - 1, "|"); // Right border
         for (int x = room->position.x + 1; x < room->position.x + room->width - 1; x++)
 
         {
-            mvprintw(y, x, "."); // Floor
+            mvprintw(y, x, ".");
         }
     }
-    for (int i = 0; i < room->num_of_doors; i++)
 
+    for (int i = 0; i < room->num_of_doors; i++)
     {
         mvprintw(room->door[i].y, room->door[i].x, "+");
     }
+
+    attroff(COLOR_PAIR(7));
 }
+
 int is_room_overlapping(room *new_room, room **rooms, int num_rooms)
 {
     for (int i = 0; i < num_rooms; i++)
@@ -1016,6 +1578,7 @@ int is_room_overlapping(room *new_room, room **rooms, int num_rooms)
     }
     return 0; // Not overlapping
 }
+
 room **mapsetup()
 {
     srand(time(NULL));
@@ -1041,44 +1604,63 @@ room **mapsetup()
     }
     return rooms;
 }
+
 void start_new_game()
 {
-    clear();
-    refresh();
-    room **rooms = mapsetup();
-    int num_rooms = MIN_ROOMS + rand() % (MAX_ROOMS - MIN_ROOMS + 1); // Random number of rooms
-    player *user = playersetup(rooms, num_rooms);
-    position traps[100];
-    int trap_count = 0;
-
-    for (int i = 0; i < num_rooms; i++)
-    {
-        drawroom(rooms[i]);
-        add_traps(rooms[i], traps, &trap_count);
-    }
-
-    mvprintw(user->position.y, user->position.x, "@");
-    refresh();
     int ch;
-    drawhallway();
-    drawgold();
-    drawfood();
-    drawweapons();
-    drawpassworddoors();
-    // add_window_pillar(room);
-    while ((ch = getch()) != 'q')
+    while (ch != 'q')
     {
-        for (int i = 0; i < LINES; i++)
+        clear();
+        refresh();
+        room **rooms = mapsetup();
+        int num_rooms = MIN_ROOMS + rand() % (MAX_ROOMS - MIN_ROOMS + 1);
+        player *user = playersetup(rooms, num_rooms);
+        position traps[100];
+        int trap_count = 0;
+
+        for (int i = 0; i < num_rooms; i++)
         {
-            for (int j = 0; j < COLS; j++)
+            drawroom(rooms[i]);
+            add_traps(rooms[i], traps, &trap_count);
+        }
+        mvprintw(user->position.y, user->position.x, "@");
+        refresh();
+        drawhallway();
+        drawgold();
+        drawfood();
+        drawspells();
+        drawweapons();
+        drawpassworddoor();
+        add_staircase();
+        drawtreasure();
+        spawnenemy();
+        drawkey();
+        // add_pillar(room);
+        while ((ch = getch()) != 'q')
+        {
+            for (int i = 0; i < LINES; i++)
             {
-                if (hallways[i][j] == '#' && abs(i - user->position.y) <= 5 && abs(j - user->position.x) <= 5)
+                for (int j = 0; j < COLS; j++)
                 {
-                    mvprintw(i, j, "#");
+                    if (hallways[i][j] == '#' && abs(i - user->position.y) <= 5 && abs(j - user->position.x) <= 5)
+                    {
+                        mvprintw(i, j, "#");
+                    }
                 }
             }
+            handleinput(ch, user, traps, trap_count);
+            if (health == 0)
+            {
+                clear();
+                mvprintw(0, 0, "You died.\nScore: %d", gold_count);
+                getch();
+                break;
+            }
+            if (flag == 1)
+            {
+                break;
+            }
         }
-        handleinput(ch, user, traps, trap_count);
     }
 }
 
@@ -1090,7 +1672,8 @@ player *playersetup(room **rooms, int num_rooms)
     new_player->position.y = starting_room->position.y + 1 + rand() % (starting_room->height - 2);
     return new_player;
 }
-void add_window_pillar(room *room)
+
+void add_pillar(room *room)
 {
     int num_of_windows = rand() % 5;
     int num_of_pillars = rand() % 5;
@@ -1130,6 +1713,6 @@ void add_window_pillar(room *room)
             window_x = room->position.x + room->width - 1;
             window_y = room->position.y + rand() % (room->height - 2);
         }
-        mvprintw(window_y, window_x, "=");
+        // mvprintw(window_y, window_x, "=");
     }
 }

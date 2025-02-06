@@ -6,7 +6,8 @@
 #include <string.h>
 #include <stdlib.h>
 #include <time.h>
-
+#include <SDL2/SDL.h>
+#include <SDL2/SDL_mixer.h>
 #define MAX_LENGTH 20 // pass
 #define MIN_LENGTH 8  // pass
 #define MAX_USER 1000
@@ -54,6 +55,25 @@ extern int usercounter;
 extern user users[MAX_USER];
 extern score scores[MAX_USER];
 extern char current_message[COLMAXI];
+
+int is_duplicate_username(char *username)
+{
+    FILE *file = fopen("user_data.txt", "r");
+
+    char line[60];
+    while (fgets(line, sizeof(line), file))
+    {
+        char read_username[50];
+        sscanf(line, "Username: %s", read_username);
+        if (strcmp(read_username, username) == 0)
+        {
+            fclose(file);
+            return 1;
+        }
+    }
+    fclose(file);
+    return 0;
+}
 
 int is_valid_username(const char *username)
 {
@@ -120,7 +140,7 @@ int is_valid_email(const char *email)
 void main_menu()
 {
     curs_set(0);
-    const char *choices[] = {"Create New User", "User Login", "Exit"};
+    const char *choices[] = {"Create New User", "User Login", "Settings", "Scoreboard", "Exit"};
     int num_choices = sizeof(choices) / sizeof(choices[0]);
     int highlight = 0;
     int choice;
@@ -134,12 +154,12 @@ void main_menu()
             if (i == highlight)
             {
                 attron(A_REVERSE);
-                mvprintw(10 + i, COLS / 2 - strlen(choices[i]) / 2, "%s", choices[i]);
+                mvprintw(15 + i, COLS / 2 - strlen(choices[i]) / 2, "%s", choices[i]);
                 attroff(A_REVERSE);
             }
             else
             {
-                mvprintw(10 + i, COLS / 2 - strlen(choices[i]) / 2, "%s", choices[i]);
+                mvprintw(15 + i, COLS / 2 - strlen(choices[i]) / 2, "%s", choices[i]);
             }
         }
         choice = getch();
@@ -162,6 +182,15 @@ void main_menu()
             }
             else if (highlight == 2)
             {
+                settings_menu();
+            }
+            else if (highlight == 3)
+            {
+                scores_sort();
+                display_scoreboards("curr_user");
+            }
+            else if (highlight == 4)
+            {
                 return;
             }
             break;
@@ -177,6 +206,7 @@ void new_user_menu()
     printw("Press any key to return to the main menu.");
     getch();
 }
+
 void create_user()
 {
     echo();
@@ -215,13 +245,23 @@ void create_user()
     if (!is_valid_email(new_user.email))
     {
         printw("The email format is invalid.\n");
-        noecho(); // Disable input echoing
+        noecho();
         return;
     }
+    // if(is_duplicate_username){
+    //     printw("Username is already taken. Try a different one..\n");
+    //     noecho();
+    //     return;
+    // }
     users[usercounter] = new_user;
     usercounter++;
     printw("User created successfully.\n");
-    noecho(); // Disable input echoing
+    FILE *file = fopen("user_data.txt", "a");
+    fprintf(file, "Username: %s\n", new_user.username);
+    fprintf(file, "Password: %s\n", new_user.password);
+    fprintf(file, "Email: %s\n\n", new_user.email);
+    fclose(file);
+    noecho();
 }
 void login_menu()
 {
@@ -242,12 +282,12 @@ void login_menu()
             if (i == highlight)
             {
                 attron(A_REVERSE);
-                mvprintw(10 + i, COLS / 2 - strlen(choices[i]) / 2, "%s", choices[i]);
+                mvprintw(15 + i, COLS / 2 - strlen(choices[i]) / 2, "%s", choices[i]);
                 attroff(A_REVERSE);
             }
             else
             {
-                mvprintw(10 + i, COLS / 2 - strlen(choices[i]) / 2, "%s", choices[i]);
+                mvprintw(15 + i, COLS / 2 - strlen(choices[i]) / 2, "%s", choices[i]);
             }
         }
         choice = getch();
@@ -409,6 +449,74 @@ void pregame_menu()
         }
     }
 }
+void play_music(char *song_name)
+{
+    SDL_Init(SDL_INIT_AUDIO);
+    Mix_OpenAudio(44100, MIX_DEFAULT_FORMAT, 2, 2048);
+
+    Mix_Music *music = Mix_LoadMUS(song_name);
+    Mix_PlayMusic(music, -1);
+}
+void music_menu()
+{
+    clear();
+    int highlight = 0;
+    const char *music_choices[] = {"Song 1", "Song 2", "Song 3", "Music off"};
+    int num_choices = sizeof(music_choices) / sizeof(music_choices[0]);
+    mvprintw(1, COLS / 2 - 4, "Background music");
+    while (1)
+    {
+        for (int i = 0; i < num_choices; i++)
+        {
+            if (i == highlight)
+            {
+                attron(A_REVERSE);
+                mvprintw(10 + i, COLS / 2 - strlen(music_choices[i]) / 2, "%s", music_choices[i]);
+                attroff(A_REVERSE);
+            }
+            else
+            {
+                mvprintw(10 + i, COLS / 2 - strlen(music_choices[i]) / 2, "%s", music_choices[i]);
+            }
+        }
+        int choice = getch();
+        switch (choice)
+        {
+        case KEY_UP:
+            mvprintw(0, 0, "YOU PRESSED UP");
+            getch();
+            highlight = (highlight - 1 + num_choices) % num_choices;
+            break;
+        case KEY_DOWN:
+            highlight = (highlight + 1) % num_choices;
+            break;
+        case 10:
+            if (highlight == 0)
+            {
+                play_music("song1.mp3");
+                return;
+            }
+            else if (highlight == 1)
+            {
+                play_music("song2.mp3");
+                return;
+            }
+            else if (highlight == 2)
+            {
+                play_music("song3.mp3");
+                return;
+            }
+            else if (highlight == 3)
+            {
+                play_music("");
+                return;
+            }
+            break;
+        default:
+            break;
+        }
+    }
+}
 void settings_menu()
 {
     const char *choices[] = {"Difficulty level", "Character Color", "Background Music", "Back"};
@@ -425,12 +533,12 @@ void settings_menu()
             if (i == highlight)
             {
                 attron(A_REVERSE);
-                mvprintw(10 + i, COLS / 2 - strlen(choices[i]) / 2, "%s", choices[i]);
+                mvprintw(15 + i, COLS / 2 - strlen(choices[i]) / 2, "%s", choices[i]);
                 attroff(A_REVERSE);
             }
             else
             {
-                mvprintw(10 + i, COLS / 2 - strlen(choices[i]) / 2, "%s", choices[i]);
+                mvprintw(15 + i, COLS / 2 - strlen(choices[i]) / 2, "%s", choices[i]);
             }
         }
         choice = getch();
@@ -453,7 +561,7 @@ void settings_menu()
             }
             else if (highlight == 2)
             {
-                // background_music();
+                music_menu();
             }
             else if (highlight == 3)
             {
@@ -481,12 +589,12 @@ void difficulty_level()
             if (i == highlight)
             {
                 attron(A_REVERSE);
-                mvprintw(10 + i, COLS / 2 - strlen(choices[i]) / 2, "%s", choices[i]);
+                mvprintw(15 + i, COLS / 2 - strlen(choices[i]) / 2, "%s", choices[i]);
                 attroff(A_REVERSE);
             }
             else
             {
-                mvprintw(10 + i, COLS / 2 - strlen(choices[i]) / 2, "%s", choices[i]);
+                mvprintw(15 + i, COLS / 2 - strlen(choices[i]) / 2, "%s", choices[i]);
             }
         }
         choice = getch();
@@ -506,11 +614,9 @@ void difficulty_level()
         }
     }
 }
-int character_color;
 void characters_color()
 {
     const char *colors[] = {"Yellow", "Green", "Cyan", "Magenta"};
-    int color_pairs[4] = {2, 5, 6, 7};
     int num_colors = sizeof(colors) / sizeof(colors[0]);
     int highlight = color_of_character;
     int choice;
@@ -524,12 +630,12 @@ void characters_color()
             if (i == highlight)
             {
                 attron(A_REVERSE);
-                mvprintw(10 + i, COLS / 2 - strlen(colors[i]) / 2, "%s", colors[i]);
+                mvprintw(15 + i, COLS / 2 - strlen(colors[i]) / 2, "%s", colors[i]);
                 attroff(A_REVERSE);
             }
             else
             {
-                mvprintw(10 + i, COLS / 2 - strlen(colors[i]) / 2, "%s", colors[i]);
+                mvprintw(15 + i, COLS / 2 - strlen(colors[i]) / 2, "%s", colors[i]);
             }
         }
         choice = getch();
@@ -542,15 +648,31 @@ void characters_color()
             highlight = (highlight + 1) % num_colors;
             break;
         case 10:
-            color_of_character = color_pairs[highlight];
+            color_of_character = highlight;
             return;
         default:
             break;
         }
     }
 }
+
 void display_scoreboards(const char *curr_user)
 {
+
+    FILE *file = fopen("user_data.txt", "r");
+    user users[200];
+    int user_count = 0;
+    char line[256];
+    int i = 0;
+    while (fgets(line, sizeof(line), file))
+    {
+        sscanf(line, "Username: %49s", scores[i].username);
+        i++;
+    }
+
+    fclose(file);
+    scorecounter = i;
+
     clear();
     draw_menu_border();
     mvprintw(1, COLS / 2 - 5, "ScoreBoard");
@@ -577,8 +699,12 @@ void display_scoreboards(const char *curr_user)
             attroff(A_BOLD);
         }
     }
+    mvprintw(5, 6, "\U0001F947");
+    mvprintw(9, 6, "\U0001F948");
+    mvprintw(13, 6, "\U0001F949");
     getch();
 }
+
 void scores_sort()
 {
     for (int i = 0; i < scorecounter - 1; i++)
